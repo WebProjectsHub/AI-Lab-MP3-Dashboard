@@ -1,0 +1,301 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>AI Lab | MP3 Agent</title>
+
+<style>
+:root {
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  background: #101827;
+  color: #e8eef8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 22px 14px;
+  min-height: 100vh;
+}
+main {
+  max-width: 520px;
+  margin: 25px auto;
+}
+header { margin-bottom: 25px; }
+h1 { font-size: 25px; margin-bottom: 6px; }
+.subtitle { color: #9eacc1; font-size: 14px; }
+.panel {
+  background: #1b2739;
+  border: 1px solid #304158;
+  border-radius: 14px;
+  padding: 19px;
+  margin-bottom: 16px;
+}
+h2 { font-size: 17px; margin: 0 0 16px; }
+label {
+  display: block;
+  font-size: 13px;
+  color: #b8c6d9;
+  margin: 13px 0 7px;
+}
+input {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #40516a;
+  border-radius: 8px;
+  background: #101827;
+  color: white;
+  font-size: 15px;
+}
+button {
+  width: 100%;
+  padding: 13px;
+  margin-top: 13px;
+  border: 0;
+  border-radius: 8px;
+  background: #3979e8;
+  color: white;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+button.secondary { background: #35465f; }
+button:disabled { opacity: .5; cursor: wait; }
+#message {
+  font-size: 13px;
+  color: #a9c9ff;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.job {
+  border-top: 1px solid #34445a;
+  padding: 13px 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.job:first-child { border-top: 0; }
+.job-status { font-weight: bold; margin: 7px 0; }
+.pending { color: #f4c66b; }
+.processing { color: #79b8ff; }
+.completed { color: #6fdda0; }
+.failed { color: #ff8585; }
+.small { color: #9eacc1; font-size: 12px; }
+.hidden { display: none; }
+</style>
+</head>
+
+<body>
+<main>
+<header>
+  <h1>AI Lab | MP3 Agent</h1>
+  <div class="subtitle">Remote YouTube download and MP3 conversion</div>
+</header>
+
+<section class="panel" id="loginPanel">
+  <h2>Account Login</h2>
+  <label for="email">Email address</label>
+  <input id="email" type="email" autocomplete="username"
+         placeholder="Your Firebase account email">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password"
+         placeholder="Your password">
+  <button id="loginButton">Sign in</button>
+  <div id="loginMessage"></div>
+</section>
+
+<section class="panel hidden" id="appPanel">
+  <h2>Submit a YouTube video</h2>
+  <label for="youtubeUrl">YouTube video URL</label>
+  <input id="youtubeUrl" type="url"
+         placeholder="https://www.youtube.com/watch?v=...">
+  <button id="submitButton">Submit conversion job</button>
+  <button class="secondary" id="logoutButton">Sign out</button>
+  <div id="message"></div>
+</section>
+
+<section class="panel hidden" id="jobsPanel">
+  <h2>Conversion jobs</h2>
+  <div id="jobsList" class="small">Waiting for jobs...</div>
+</section>
+</main>
+
+<script type="module">
+import { initializeApp } from
+  "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  signOut
+} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+
+import {
+  getDatabase,
+  ref,
+  push,
+  set,
+  onValue,
+  query,
+  limitToLast
+} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+
+const configResponse = await fetch("./firebase_config.json");
+if (!configResponse.ok) {
+  throw new Error("Could not load firebase_config.json");
+}
+const firebaseConfig = await configResponse.json();
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+const loginPanel = document.getElementById("loginPanel");
+const appPanel = document.getElementById("appPanel");
+const jobsPanel = document.getElementById("jobsPanel");
+const loginMessage = document.getElementById("loginMessage");
+const message = document.getElementById("message");
+const jobsList = document.getElementById("jobsList");
+const loginButton = document.getElementById("loginButton");
+const submitButton = document.getElementById("submitButton");
+
+let stopJobsListener = null;
+
+function showSignedIn(user) {
+  loginPanel.classList.toggle("hidden", !!user);
+  appPanel.classList.toggle("hidden", !user);
+  jobsPanel.classList.toggle("hidden", !user);
+
+  if (!user) {
+    if (stopJobsListener) stopJobsListener();
+    stopJobsListener = null;
+    jobsList.textContent = "Sign in to view jobs.";
+    return;
+  }
+
+  if (stopJobsListener) stopJobsListener();
+
+  const jobsQuery = query(ref(db, "jobs"), limitToLast(30));
+
+  stopJobsListener = onValue(jobsQuery, snapshot => {
+    jobsList.replaceChildren();
+
+    if (!snapshot.exists()) {
+      jobsList.textContent = "No conversion jobs yet.";
+      return;
+    }
+
+    const jobs = [];
+    snapshot.forEach(child => {
+      jobs.push({ id: child.key, ...child.val() });
+    });
+
+    jobs.reverse().forEach(job => {
+      const item = document.createElement("div");
+      item.className = "job";
+
+      const url = document.createElement("div");
+      url.textContent = job.url || "No URL recorded";
+
+      const status = document.createElement("div");
+      status.className = "job-status " +
+        String(job.status || "unknown").toLowerCase();
+      status.textContent = "Status: " + (job.status || "unknown");
+
+      const date = document.createElement("div");
+      date.className = "small";
+      date.textContent = job.createdAt
+        ? "Submitted: " + new Date(job.createdAt).toLocaleString()
+        : "";
+
+      item.append(url, status, date);
+      jobsList.appendChild(item);
+    });
+  }, error => {
+    jobsList.textContent = "Could not load jobs: " + error.message;
+  });
+}
+
+loginButton.addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+
+  if (!email || !password) {
+    loginMessage.textContent = "Enter your email and password.";
+    return;
+  }
+
+  loginButton.disabled = true;
+  loginMessage.textContent = "Signing in...";
+
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+    loginMessage.textContent = "";
+  } catch (error) {
+    loginMessage.textContent = error.message;
+  } finally {
+    loginButton.disabled = false;
+  }
+});
+
+submitButton.addEventListener("click", async () => {
+  const url = document.getElementById("youtubeUrl").value.trim();
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    message.textContent = "Enter a valid YouTube URL.";
+    return;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const validHost = [
+    "youtube.com", "www.youtube.com",
+    "m.youtube.com", "youtu.be", "www.youtube-nocookie.com"
+  ];
+
+  if (parsed.protocol !== "https:" || !validHost.includes(host)) {
+    message.textContent = "Please enter an HTTPS YouTube video URL.";
+    return;
+  }
+
+  if (!auth.currentUser) {
+    message.textContent = "Please sign in again.";
+    return;
+  }
+
+  submitButton.disabled = true;
+  message.textContent = "Submitting job...";
+
+  try {
+    const newJob = push(ref(db, "jobs"));
+
+    await set(newJob, {
+      url: url,
+      status: "pending",
+      createdAt: Date.now(),
+      submittedBy: auth.currentUser.uid
+    });
+
+    document.getElementById("youtubeUrl").value = "";
+    message.textContent = "Job submitted successfully.";
+  } catch (error) {
+    message.textContent = "Submission failed: " + error.message;
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+document.getElementById("logoutButton").addEventListener("click",
+  async () => {
+    await signOut(auth);
+  }
+);
+
+auth.onAuthStateChanged(user => showSignedIn(user));
+</script>
+</body>
+</html>
