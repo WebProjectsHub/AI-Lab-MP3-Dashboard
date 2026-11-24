@@ -3,7 +3,5 @@
     authDomain: "ai-lab-mp3-agent.firebaseapp.com",
     databaseURL: "https://ai-lab-mp3-agent-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "ai-lab-mp3-agent",
-    storageBucket: "ai-lab-mp3-agent.firebasestorage.app",
-    messagingSenderId: "985491452565",
     appId: "1:985491452565:web:952fa3125bc5f53b1de19c"
 }
