@@ -129,7 +129,8 @@ import { initializeApp } from
 import {
   getAuth,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
 
 import {
@@ -295,7 +296,7 @@ document.getElementById("logoutButton").addEventListener("click",
   }
 );
 
-auth.onAuthStateChanged(user => showSignedIn(user));
+onAuthStateChanged(auth, user => showSignedIn(user));
 </script>
 </body>
 </html>
